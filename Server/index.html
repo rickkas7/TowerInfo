@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+
+<title>Tower Information Example</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=2, user-scalable=yes"/>
+
+<link rel="stylesheet" href="main.css">
+
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.15.3/axios.min.js"></script>
+
+</head>
+<body>
+
+<!-- component template -->
+<script type="text/x-template" id="grid-template">
+  <table>
+    <thead>
+      <tr>
+        <th v-for="key in columns">
+			{{ key | capitalize }}
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr v-for="entry in table">
+        <td v-for="key in columns">
+          {{entry[key]}}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</script>
+
+
+<div id="app">
+
+<button v-on:click="startHandler" v-if='showStart'>Start</button>
+
+<div v-if="!hasBrowserBLE">
+<p>This demo requires Web BLE, which is only available on new Chrome browsers on Android, Chromeboxes, 
+some Mac and Windows PCs. It's not supported on other browsers (Firefox, Safari, Edge, Internet Explorer)
+and is not supported on Chrome for iOS.</p>
+<p>While iOS Safari does not work, the <strong>WebBLE</strong> browser app in the Apple app store does.</p>
+</div>
+
+<div>&nbsp;</div>
+
+<div id="googleMap" v-bind:style="mapStyle"></div>
+
+<div>{{status}}</div>
+
+<progress v-bind:value="progress" v-bind:max="maxProgress"></progress>
+
+<demo-grid :table="table" :columns="tableColumns">
+</demo-grid>
+
+
+
+</div> <!-- app -->
+
+<script async type="text/javascript" src="main.js"></script>
+
+
+</body>
+</html>
