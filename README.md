@@ -41,11 +41,10 @@ It might work on Opera for Mac, Windows, Linux and Android.
 
 The display page uses WebBLE to communicate directly with the Boron 2G/3G. It renders the data using Vue JS and makes calls to Google Geolocation and Google Maps from the Javascript. The mobile device, tablet, or laptop must have a working Internet connection while scanning.
 
-The sample is available at the Github pages site: 
-xxx
+The sample is available at the Github pages site: [https://rickkas7.github.io/TowerInfo](https://rickkas7.github.io/TowerInfo)
 
 - Load the firmwire above on your Boron. It should breathe dark blue.
-- Just navigate to this page on your mobile device, tablet, or laptop.
+- Just navigate to [this page](https://rickkas7.github.io/TowerInfo) on your mobile device, tablet, or laptop.
 - Click the **Start** button.
 - Select the Boron from the dialog.
 - Wait for the results to come in! It takes about 2 minutes.
