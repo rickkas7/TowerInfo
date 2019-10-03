@@ -135,7 +135,7 @@ async function startConnection() {
 
 		responseCharacteristic.addEventListener('characteristicvaluechanged', handleResponseNotifications);
 
-		app.status = 'Scaning for towers (takes about 2 minutes)...';
+		app.status = 'Scanning for towers (takes about 2 minutes)...';
 		
 		scanStartTime = new Date().getTime();
 		progressTimer = setInterval(function() {

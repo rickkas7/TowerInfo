@@ -21,7 +21,7 @@ dependencies.JsonParserGeneratorRK=0.1.0
 
 Or, if you want to use the Web IDE, you can click on [this link](https://go.particle.io/shared_apps/5d94ce535cdabc0023dd6f58) to clone the project.
 
-Since the firmware uses MANUAL mode with cellular on it with breathe dark blue. This is normal.
+Your Boron will breathe dark blue when running this firmware. (It uses MANUAL mode with cellular on.)
 
 To put regular firmware on it again, put the device in safe mode (breathing magenta) or flash tinker or your own code over USB.
 
@@ -35,7 +35,9 @@ The display program is a web page that uses Web BLE. The selection of browsers t
 - Chrome on some Windows PCs
 - The **WebBLE** iOS app for iPhone and iPad.
 
-It does not work on other browser like Firefox, Safari, Edge, and Internet Explorer. 
+You may need to enable experimental Chrome features on Linux: `chrome://flags/#enable-experimental-web-platform-features`.
+
+It does not work on other browsers like Firefox, Safari, Edge, and Internet Explorer. 
 
 It might work on Opera for Mac, Windows, Linux and Android. 
 
