@@ -38,7 +38,13 @@
 
 <div id="app">
 
-<button v-on:click="startHandler" v-if='showStart'>Start</button>
+
+<form v-on:submit.prevent>
+<div>
+<button v-on:click="startHandler" v-if='showStart'>Start</button> <button v-on:click="scanHandler" v-if='showScanAgain'>Scan Again</button>&nbsp;&nbsp;
+<span v-if='showShowLocation'><input type="checkbox" id="showLocationCheckbox" v-model="showLocation"><label for="showLocationCheckbox">Show my location</label></span>
+</div>
+</form>
 
 <div v-if="!hasBrowserBLE">
 <p>This demo requires Web BLE, which is only available on new Chrome browsers on Android, Chromeboxes, 
@@ -57,7 +63,6 @@ and is not supported on Chrome for iOS.</p>
 
 <demo-grid :table="table" :columns="tableColumns">
 </demo-grid>
-
 
 
 </div> <!-- app -->

@@ -1,16 +1,24 @@
 # Tower Info
 
-Tower Info is a tool to show the location of nearby cellular towers on a mobile device, tablet, or laptop. It uses a Boron 2G/3G to scan for towers and communicates with the device using Web BLE (Bluetooth).
+Tower Info is a tool to show the location of nearby cellular towers on a mobile device, tablet, or laptop. 
+
+It uses a Boron 2G/3G to scan for towers and communicates with the device using Web BLE (Bluetooth).
+
+It can also be used with a Boron LTE to find information about the LTE Cat M1 tower you're connected to. 
 
 ### The Tower Scanner
 
-The tower scanner can only be a Boron 2G/3G. The Boron LTE doesn't support scanning for towers. The Electron and E Series don't support BLE to connect to the mobile device or laptop.
+The tower scanner can only do scanning on a Boron 2G/3G. Tower scan will only see 2G/3G towers. It should be able to see other GSM carriers, even ones the SIM cannot connect to, but cannot see non-GSM carriers like Verizon and Sprint in the United States.
 
-Because it uses a Boron 2G/3G it can only see 2G/3G towers. It can't see LTE towers, so it can't see Verizon in the United States, for example.
+The Boron LTE's cellular modem doesn't support scanning for towers, but will report information about the tower you're connected to. Since it only reports the connected tower, it won't report towers from other carriers or 2G/3G towers.
 
-The tower scanner runs in manual mode with only the modem turned on and receiving requests by BLE. It does not make a cloud connection so it can be used to help troubleshoot connectivity issues.
+The Electron and E Series don't support BLE to connect to the mobile device or laptop and cannot be used.
 
-The firmware can be found in the **src** directory in the Github repository in the **TowerInfo.cpp** file. 
+The Boron 2G/3G tower scanner runs in manual mode with only the modem turned on and receiving requests by BLE. It does not make a cloud connection so it can be used to help troubleshoot connectivity issues.
+
+The Boron LTE tower scanner requires a working cloud connection (breathing cyan), so it only works when you already have a working connection, but it can report where your connected tower is.
+
+The firmware can be found in the **src** directory in the Github repository in the **TowerInfo.cpp** file. The same firmware runs on both the Boron 2G/3G and Boron LTE.
 
 It depends on two libraries. If you are using Particle Workbench, copy and paste this into your project.properties file.
 
@@ -19,11 +27,11 @@ dependencies.CellularHelper=0.0.7
 dependencies.JsonParserGeneratorRK=0.1.0
 ```
 
-Or, if you want to use the Web IDE, you can click on [this link](https://go.particle.io/shared_apps/5d94ce535cdabc0023dd6f58) to clone the project.
+Or, if you want to use the Web IDE, you can click on [this link](https://go.particle.io/shared_apps/5d9aff81688fb200221769e7) to clone the project.
 
-Your Boron will breathe dark blue when running this firmware. (It uses MANUAL mode with cellular on.)
+A Boron 2G/3G will breathe dark blue when running this firmware. It uses MANUAL mode with cellular on. To put regular firmware on it again, put the device in safe mode (breathing magenta) or flash tinker or your own code over USB.
 
-To put regular firmware on it again, put the device in safe mode (breathing magenta) or flash tinker or your own code over USB.
+A Boron LTE runs in normal cloud-connected mode (breathing cyan).
 
 ### The Tower Display
 
@@ -41,7 +49,7 @@ It does not work on other browsers like Firefox, Safari, Edge, and Internet Expl
 
 It might work on Opera for Mac, Windows, Linux and Android. 
 
-The display page uses WebBLE to communicate directly with the Boron 2G/3G. It renders the data using Vue JS and makes calls to Google Geolocation and Google Maps from the Javascript. The mobile device, tablet, or laptop must have a working Internet connection while scanning.
+The display page uses WebBLE to communicate directly with the Boron. It renders the data using Vue JS and makes calls to Google Geolocation and Google Maps from the Javascript. The mobile device, tablet, or laptop must have a working Internet connection while scanning.
 
 The sample is available at the Github pages site: [https://rickkas7.github.io/TowerInfo](https://rickkas7.github.io/TowerInfo)
 
@@ -50,6 +58,8 @@ The sample is available at the Github pages site: [https://rickkas7.github.io/To
 - Click the **Start** button.
 - Select the Boron from the dialog.
 - Wait for the results to come in! It takes about 2 minutes.
+
+The **Show My Location** checkbox determines whether it will ask the browser for its current location and plot it on the map.
 
 ### The Tower Web Page Server
 

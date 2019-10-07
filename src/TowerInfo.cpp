@@ -3,10 +3,13 @@
 #include "CellularHelper.h"
 #include "JsonParserGeneratorRK.h"
 
-// Only works on Boron 2G/3G
+// This works best on a Boron 2G/3G.
+//
+// It works in a limited fashion on a Boron LTE. It only works if you can successfully get a cellular
+// connection and only returns information about the connected tower. This is a limitation
+// of the u-blox SARA-R410M-02B cellular modem which does not support the tower scan (AT+COPS).
+//
 // It won't work on the Electron/E Series because it requires BLE, which is only on Gen 3
-// It won't work on LTE devices (Boron LTE, B Series B402 SoM) because the u-blox SARA-R410M-02B does not support
-// tower detection using AT+CGED=5.
 
 SYSTEM_MODE(MANUAL);
 SYSTEM_THREAD(ENABLED);
@@ -14,12 +17,13 @@ SYSTEM_THREAD(ENABLED);
 SerialLogHandler logHandler;
 
 const unsigned long MODEM_ON_WAIT_TIME_MS = 4000;
+const unsigned long MAX_CGI_TRY_MS = 120 * 1000; // 2 minutes
 
 
 // Forward declarations
+bool getDataFromCGI();
 void cellularScan();
 void bleCommandReceived(const uint8_t* data, size_t len, const BlePeerDevice& peer, void* context);
-void buttonHandler(system_event_t event, int data);
 void sendResponse(const char *op, const char *fmt = NULL, ...);
 
 const BleUuid serviceUuid("378a36ab-1a74-4b28-a2da-c9e3e96affed");
@@ -33,13 +37,14 @@ BleCharacteristic commandCharacteristic("command", BleCharacteristicProperty::WR
 enum State {
 	STARTUP_STATE,
 	RUN_TEST_STATE,
+	CGI_STATE,
 	DONE_STATE,
 	IDLE_WAIT_STATE
 };
 State state = STARTUP_STATE;
 unsigned long stateTime = 0;
-bool buttonClicked = false;
 bool wasConnected = false;
+bool isLTE = false;
 
 // Global parser that supports up to 256 bytes of data and 20 tokens
 JsonParserStatic<256, 20> parser;
@@ -58,11 +63,25 @@ public:
 	int lastCurDataIndex = -1;
 };
 
+class ResponseUCGED : public CellularHelperCommonResponse {
+public:
+	ResponseUCGED();
+	virtual ~ResponseUCGED();
+
+	virtual int parse(int type, const char *buf, int len);
+
+	int run();
+
+public:
+	int earfcn = 0;
+	String rsrp;
+	String rsrq;
+};
+
 CustomResponse envResp;
 
 void setup() {
 	Serial.begin(9600);
-	System.on(button_click, buttonHandler);
 
     BLE.addCharacteristic(responseCharacteristic);
     BLE.addCharacteristic(commandCharacteristic);
@@ -77,44 +96,70 @@ void loop() {
 	switch(state) {
 	case STARTUP_STATE:
 		Log.info("turning on modem...");
-		buttonClicked = false;
 		Cellular.on();
 
 		delay(MODEM_ON_WAIT_TIME_MS);
 
-		Log.info("press the MODE button to start test");
+		isLTE = CellularHelper.isLTE();
+		if (isLTE) {
+			// This is an LTE modem (SARA-R410M-02B) which doesn't have tower scan so we need
+			// to connect to a tower to get its information
+			Particle.connect();
+		}
+
 		state = IDLE_WAIT_STATE;
 		stateTime = millis();
 		break;
 
 	case RUN_TEST_STATE:
-		cellularScan();
-		state = DONE_STATE;
+		if (isLTE) {
+			stateTime = millis();
+			state = CGI_STATE;
+		}
+		else {
+			cellularScan();
+			state = DONE_STATE;
+		}
+		break;
+
+	case CGI_STATE:
+		if (millis() - stateTime < MAX_CGI_TRY_MS) {
+			if (Particle.connected()) {
+				if (getDataFromCGI()) {
+					// Got data!
+					sendResponse("done");
+					state = DONE_STATE;
+				}
+				else {
+					// Wait a few seconds and try again
+					delay(5000);
+				}
+			}
+			else {
+				sendResponse("status", "Not connected to the cloud yet, can't determine tower information");
+			}
+		}
+		else {
+			sendResponse("done");
+			state = DONE_STATE;
+		}
 		break;
 
 	case DONE_STATE:
 		Log.info("tests complete!");
-		Log.info("press the MODE button to repeat test");
-		buttonClicked = false;
 		state = IDLE_WAIT_STATE;
 		break;
 
 	case IDLE_WAIT_STATE:
-		if (buttonClicked) {
-			buttonClicked = false;
-			state = RUN_TEST_STATE;
-		}
 		break;
 	}
 
     if (BLE.connected()) {
     	if (!wasConnected) {
     		// The BLE central just connected
+    		Log.info("BLE connected");
 
-    		// If we're idle, start running the test
-    		if (state == IDLE_WAIT_STATE) {
-    			state = RUN_TEST_STATE;
-    		}
+    		// Wait for a "scan" command to start scanning
     	}
     	wasConnected = true;
     }
@@ -165,6 +210,81 @@ void printCellData(CellularHelperEnvironmentCellData *data) {
 	Log.info("%s %s %d bars (%03d%03d)", whichG, data->getBandString().c_str(), data->getBars(), data->mcc, data->mnc);
 }
 
+bool getDataFromCGI() {
+	CellularGlobalIdentity cgi = {0};
+	cgi.size = sizeof(CellularGlobalIdentity);
+	cgi.version = CGI_VERSION_LATEST;
+
+	cellular_result_t res = cellular_global_identity(&cgi, NULL);
+	if (res == SYSTEM_ERROR_NONE) {
+
+		// For LTE devices, send the UCGED data first. We'll use it in the table
+		// when we add the data next. The data is too big to fit in a single
+		// characteristic.
+		ResponseUCGED ucged;
+		int ucgedRes = ucged.run();
+		if (ucgedRes == RESP_OK) {
+			jw.init();
+			{
+				JsonWriterAutoObject obj(&jw);
+				jw.insertKeyValue("op", "lte");
+				jw.insertKeyValue("earfcn", ucged.earfcn);
+				jw.insertKeyValue("rsrp", ucged.rsrp);
+				jw.insertKeyValue("rsrq", ucged.rsrq);
+			}
+			Log.info("lte response: %s", jw.getBuffer());
+			responseCharacteristic.setValue((const char *)jw.getBuffer());
+		}
+
+
+		// Send the tower data
+		jw.init();
+		{
+			JsonWriterAutoObject obj(&jw);
+
+			// Add various types of data
+			jw.insertKeyValue("op", "tower");
+			jw.insertKeyValue("mcc", cgi.mobile_country_code);
+			jw.insertKeyValue("mnc", cgi.mobile_network_code);
+			jw.insertKeyValue("lac", cgi.location_area_code);
+			jw.insertKeyValue("ci", cgi.cell_id);
+
+			CellularSignal s = Cellular.RSSI();
+
+			String lteType = "unknown";
+			auto rat = s.getAccessTechnology();
+			switch(rat) {
+			case NET_ACCESS_TECHNOLOGY_LTE_CAT_M1:
+				lteType = "M1";
+				break;
+
+			case NET_ACCESS_TECHNOLOGY_LTE_CAT_NB1:
+				lteType = "NB1";
+				break;
+
+			default:
+				break;
+			}
+			jw.insertKeyValue("lte", lteType);
+
+			jw.insertKeyValue("rssi", (int) s.getStrengthValue());
+		}
+
+		Log.info("tower response: %s", jw.getBuffer());
+
+		responseCharacteristic.setValue((const char *)jw.getBuffer());
+
+
+
+		return true;
+	}
+	else {
+		Log.info("cellular_global_identity returned %d", res);
+		sendResponse("status", "No tower information available yet");
+		return false;
+	}
+}
+
 void cellularScan() {
 
 	// envResp.enableDebug = true;
@@ -212,11 +332,6 @@ void bleCommandReceived(const uint8_t* data, size_t len, const BlePeerDevice& pe
 
 }
 
-
-void buttonHandler(system_event_t event, int param) {
-	// int clicks = system_button_clicks(param);
-	buttonClicked = true;
-}
 
 CustomResponse::CustomResponse() {
 }
@@ -274,5 +389,88 @@ int CustomResponse::parse(int type, const char *buf, int len) {
 
 	return res;
 }
+
+
+ResponseUCGED::ResponseUCGED() {
+}
+
+ResponseUCGED::~ResponseUCGED() {
+}
+
+int ResponseUCGED::parse(int type, const char *buf, int len) {
+	if (enableDebug) {
+		logCellularDebug(type, buf, len);
+	}
+	if (type == TYPE_PLUS) {
+		// Copy to temporary string to make processing easier
+		char *copy = (char *) malloc(len + 1);
+		if (copy) {
+			strncpy(copy, buf, len);
+			copy[len] = 0;
+
+			// +RSRP: 162,5110,"-075.00",
+			// +RSRQ: 162,5110,"-14.20",
+			// OK
+
+			char *cp = copy;
+			while(*cp && *cp != '+') {
+				cp++;
+			}
+			if (*cp == '+') {
+				cp++;
+			}
+
+			// Skip over "RSRP: " or "RSRQ: "
+			char *resp = cp;
+			cp += 6;
+
+			cp = strtok(cp, ",");
+			if (cp) {
+				// pcid
+				cp = strtok(NULL, ",");
+				if (cp) {
+					// earfcn
+					earfcn = atoi(cp);
+
+					cp = strtok(NULL, ",");
+					if (cp) {
+						// value
+						if (*cp == '"') {
+							cp++;
+							char *end = strchr(cp, '"');
+							if (end) {
+								*end = 0;
+							}
+						}
+						if (strncmp(resp, "RSRP", 4) == 0) {
+							rsrp = cp;
+						}
+						else
+						if (strncmp(resp, "RSRQ", 4) == 0) {
+							rsrq = cp;
+						}
+					}
+				}
+			}
+
+
+			free(copy);
+		}
+	}
+	return WAIT;
+}
+
+int ResponseUCGED::run() {
+	Log.info("running AT+UCGED command");
+	enableDebug = false;
+
+	Cellular.command("AT+UCGED=5\r\n");
+
+	resp = Cellular.command(CellularHelperClass::responseCallback, (void *)this, CellularHelperClass::DEFAULT_TIMEOUT, "AT+UCGED?\r\n");
+
+	return resp;
+}
+
+
 
 

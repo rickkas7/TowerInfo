@@ -11,6 +11,8 @@ const commandUuid = 'fa7fbdf6-e86a-461c-9eb8-78af97e2d73c';
 // for your project.
 const apiKey = 'PASTE_GOOGLE_API_KEY_HERE';
 
+let encoder = new TextEncoder('utf-8');
+
 let mccmncData = [];
 
 let map;
@@ -62,18 +64,27 @@ var app = new Vue({
         s.setAttribute('src', 'https://maps.googleapis.com/maps/api/js?key=' + apiKey);
         s.async = true;
         document.body.appendChild(s);
+        
+        this.showShowLocation = ('geolocation' in navigator);
     },
     data: {
     	table: [],
     	tableColumns: [],
     	tableColumnsNarrow: ['label', 'carrier', 'band', 'rssi'],
     	tableColumnsWide: ['label', 'carrier', 'band', 'rssi', 'location', 'accuracy'],
+    	tableColumnsWideLTE: ['label', 'carrier', 'band', 'rssi', 'rsrp', 'rsrq', 'location', 'accuracy'],
     	status: '',
     	progress: 0,
     	maxProgress: 125,
     	hasBrowserBLE: true,
     	showStart: true,
-    	mapStyle: { width:'100%', height:'800px' }
+    	mapStyle: { width:'100%', height:'800px' },
+    	showShowLocation: false,
+    	showLocation: true,
+    	showScanAgain: false,
+    	myLocation:null,
+    	lteData:null,
+    	isNarrow:false
     },
     methods: {
     	fetchOperatorData() {
@@ -99,18 +110,37 @@ var app = new Vue({
         	this.mapStyle.height = mapHeight + 'px';
         	// this.status = 'height set to ' + mapHeight;
         	
-        	if (innerWidth < 500) {
+        	this.isNarrow = (innerWidth < 500);
+        	
+        	if (this.isNarrow) {
         		this.tableColumns = this.tableColumnsNarrow;
         	}
         	else {
         		this.tableColumns = this.tableColumnsWide;        		
         	}
+        },
+        scanHandler() {
+        	document.getElementById("googleMap").innerHtml = '';
+        	map = undefined;
+        	
+        	this.table = [];
+        	startScan();
         }
     }
 });
 
+function createMapIfNecessary(loc) {
+	if (!map) {
+		var mapProp= {
+				center:loc,
+				zoom:13,
+		};
+		map = new google.maps.Map(document.getElementById("googleMap"), mapProp);
+	}
+}
+
 async function startConnection() {
-	try {
+	try {		
 		app.status = 'Select Boron...';
 		
 		app.showStart = false;
@@ -135,27 +165,77 @@ async function startConnection() {
 
 		responseCharacteristic.addEventListener('characteristicvaluechanged', handleResponseNotifications);
 
-		app.status = 'Scanning for towers (takes about 2 minutes)...';
-		
-		scanStartTime = new Date().getTime();
-		progressTimer = setInterval(function() {
-			let elapsedSecs = Math.floor((new Date().getTime() - scanStartTime) / 1000);
-			if (elapsedSecs > app.maxProgress) {
-				elapsedSecs = app.maxProgress;
-			}
-			app.progress = elapsedSecs;
-		}, 2000);
+		commandCharacteristic = await service.getCharacteristic(commandUuid);
 
+		
+		startScan();
 	} catch(error) {
 		console.log('error: ' + error);
 		app.status = error;
 		app.showStart = true;
+		app.showScanAgain = false;
 	}
+}
+
+// Send a command to the Boron 
+// cmd must be an object when can be stringified to JSON
+// Typically it contains {"op":"something"} to specify an operation to perform and optional
+// parameters.
+function sendCommand(cmd) {
+	const cmdStr = JSON.stringify(cmd);
+	
+	commandCharacteristic.writeValue(encoder.encode(cmdStr));
+
+	console.log('sendCommand ' + cmdStr);
+}
+
+// Start a new scan. Used by the Start button and Scan Again button
+function startScan() {
+	app.showStart = false;
+	app.showScanAgain = false;
+	app.addedLocationToTable = false;
+	app.myLocation = null;
+	app.lteData = null;
+	
+	if (app.showShowLocation && app.showLocation) {
+		app.showShowLocation = false;
+		
+		navigator.geolocation.getCurrentPosition(function(position) {
+			console.log('lat=' + position.coords.latitude + ' lng=' + position.coords.longitude);	
+			
+			const locStr = position.coords.latitude.toFixed(7) + ', ' + position.coords.longitude.toFixed(7);
+			
+			const loc = new google.maps.LatLng(position.coords.latitude, position.coords.longitude);
+			
+			app.myLocation = {label:'X', carrier:'My Location', rssi:'', location:locStr, accuracy:'', band:''}; 
+			app.table.push(app.myLocation);
+
+			createMapIfNecessary(loc);
+			
+			let marker = new google.maps.Marker({position:loc, map:map, title:'My Location', label:'X'});
+		});
+	}	
+
+	app.status = 'Scanning for towers (takes up to 2 minutes)...';
+	sendCommand({op:'scan'});
+	
+	scanStartTime = new Date().getTime();
+	progressTimer = setInterval(function() {
+		let elapsedSecs = Math.floor((new Date().getTime() - scanStartTime) / 1000);
+		if (elapsedSecs > app.maxProgress) {
+			elapsedSecs = app.maxProgress;
+		}
+		app.progress = elapsedSecs;
+	}, 2000);
+	
+	// TODO: Send command to start scan
+	// Remove auto-scan on connect and delay from .cpp code
 }
 
 function onDisconnected() {
 	app.status = 'Boron disconnected';
 	app.showStart = true;
+	app.showScanAgain = false;
 }
 
 function handleResponseNotifications(event) {
@@ -180,14 +260,24 @@ function handleResponseNotifications(event) {
 			app.status = json.msg;
 			break;
 			
+		case 'lte':
+			if (!app.isNarrow) {
+				app.tableColumns = app.tableColumnsWideLTE;
+			}
+			app.lteData = json;
+			console.log('got lte data', json);
+			break;
+			
 		case 'done':
 			app.status = 'scan complete!';
 			app.progress = app.maxProgress;
-			
+						
 			if (progressTimer) {
 				clearInterval(progressTimer);
 			}
-			
+			app.showScanAgain = true;
+			app.showShowLocation = true;
+
 			// console.log('table', app.table);
 			break;
 			
@@ -203,7 +293,7 @@ function handleResponseNotifications(event) {
 function handleTower(data) {
 	var carrier = lookupCarrier(data.mcc, data.mnc);
 
-	// console.log('mcc=' + data.mcc + ' mnc=' + data.mnc + ' carrier=' + carrier);
+	console.log('mcc=' + data.mcc + ' mnc=' + data.mnc + ' carrier=' + carrier);
 
 	let req = {};
 
@@ -219,14 +309,14 @@ function handleTower(data) {
 	tower.mobileCountryCode = data.mcc;
 	tower.mobileNetworkCode = data.mnc;
 	tower.signalStrength = data.rssi;
-
+	
 	req.cellTowers.push(tower);
 
 	let url = 'https://www.googleapis.com/geolocation/v1/geolocate?key=' + apiKey;
 
 	let reqData = JSON.stringify(req);
 
-	// console.log('reqData=' + reqData);
+	console.log('reqData=' + reqData);
 
 	let opts = {
 			headers: {
@@ -241,21 +331,32 @@ function handleTower(data) {
 
 			const band = getBandName(data);
 			
+			// Remove myLocation if present
+			if (app.myLocation) {
+				app.table = app.table.slice(0, app.table.length - 1);
+			}
+			
 			const locStr = response.data.location.lat.toFixed(7) + ', ' + response.data.location.lng.toFixed(7);
 			
-			const label = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789'.charAt(app.table.length);
+			const label = 'ABCDEFGHIJKLMNOPQRSTUVWYZ123456789'.charAt(app.table.length);
 			
-			app.table.push({label:label, carrier:carrier, rssi:data.rssi, location:locStr, accuracy:response.data.accuracy, band:band});
+					
+			let row = {label:label, carrier:carrier, rssi:data.rssi, location:locStr, accuracy:response.data.accuracy, band:band};
+			
+			if (app.lteData) {
+				row.rsrp = app.lteData.rsrp;
+				row.rsrq = app.lteData.rsrq;
+			}
+
+			app.table.push(row);
+							
+			if (app.myLocation) {
+				app.table.push(app.myLocation);
+			}
 			
 			const loc = new google.maps.LatLng(response.data.location.lat, response.data.location.lng);
 			
-			if (!map) {
-				var mapProp= {
-						center:loc,
-						zoom:13,
-				};
-				map = new google.maps.Map(document.getElementById("googleMap"), mapProp);
-			}
+			createMapIfNecessary(loc);
 			
 			let towerCircle = new google.maps.Circle({
 				  center:loc,
@@ -495,6 +596,10 @@ function getFreq(data) {
 function getBandName(data) {
 	let band;
 
+	if ('lte' in data) {
+		return getBandNameLTE(data);
+	}
+	
 	let freq = getFreq(data);
 	
 	if (freq === 1800) {
@@ -528,3 +633,72 @@ function getBandName(data) {
 	return band;
 }
 
+// 6449
+
+function getBandNameLTE(data) {
+	var name = 'LTE ' + data.lte + ' band ';
+	
+	if (app.lteData) {
+		let earfcn = parseInt(app.lteData.earfcn);
+		if (earfcn == 0) {
+			name += 'unknown';
+		}
+		else
+		if (earfcn < 600) {
+			name += '1 (2100 MHz)';
+		}
+		else
+		if (earfcn < 1200) {
+			name += '2 (1900 MHz)';
+		}
+		else
+		if (earfcn < 1950) {
+			name += '3 (1800 MHz)';
+		}
+		else
+		if (earfcn < 2400) {
+			name += '4 (1700 MHz)';
+		}
+		else
+		if (earfcn < 2650) {
+			name += '5 (850 MHz)';
+		}
+		else
+		if (earfcn < 2750) {
+			name += '6';
+		}
+		else
+		if (earfcn < 3450) {
+			name += '7 (2600 MHz)';
+		}
+		else
+		if (earfcn < 3800) {
+			name += '8 (900 MHz)';
+		}
+		else
+		if (earfcn < 5010) {
+			name += '9';
+		}
+		else
+		if (earfcn < 5180) {
+			name += '12 (700 MHz)';
+		}
+		else
+		if (earfcn < 5730) {
+			name += '13 (700 MHz)';
+		}
+		else
+		if (earfcn < 6000) {
+			name += '17 (700 MHz)';
+		}
+		else
+		if (earfcn < 6150) {
+			name += '20 (800 MHz)';
+		}
+		else {
+			name += 'unknown';
+		}
+	}
+	
+	return name;
+}
