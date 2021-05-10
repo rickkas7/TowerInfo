@@ -11,7 +11,7 @@
     "license": "Apache Version 2.0",
     "dependencies": {
         "jsdom": "^15.1.1",
-        "lodash": "^4.17.19",
+        "lodash": "^4.17.21",
         "node-fetch": "^2.6.0"
     },
     "engines": {
